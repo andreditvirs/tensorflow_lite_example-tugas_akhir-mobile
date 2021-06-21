@@ -165,20 +165,13 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
 //      case "sink": return "wastafel";
 //      case "refrigerator": return "kulkas";
 //      case "book": return "buku";
-//      case ""
-//
-//      default: return "";
-////      pemanggang roti
-////      wastafel
-////              kulkas
-////???
-////      buku
-////              jam
-////      vas
-////              gunting
-////      boneka beruang
-////      pengering rambut
-////      sikat gigi
+//      case "": return "jam";
+//	case "": return "vas";
+// 	case "": return "gunting";
+//	case "": return "boneka beruang";
+//	case "": return "pengering rambut";
+//	case "": return "sikat gigi";
+//	default: return "";
 //    }
 //  }
 
