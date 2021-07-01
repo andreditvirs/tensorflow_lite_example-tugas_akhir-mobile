@@ -42,15 +42,34 @@
             android:layout_alignParentTop="true"
             android:background="@color/tfe_semi_transparent">
 
-            <ImageView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:src="@drawable/tfl2_logo" />
+            <TextView
+                android:id="@+id/txtV_timer"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:text="Hello World"
+                android:textColor="@color/cardview_light_background"
+                android:textAlignment="textEnd"
+                android:padding="20dp"/>
         </androidx.appcompat.widget.Toolbar>
 
     </RelativeLayout>
 
     <include
+        android:visibility="invisible"
         android:id="@+id/bottom_sheet_layout"
         layout="@layout/tfe_od_layout_bottom_sheet" />
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/design_default_color_primary"
+        android:minHeight="60dp"
+        android:layout_gravity="bottom">
+        <Button
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="20dp"
+            android:text="Timer"
+            android:background="@color/cardview_light_background"
+            android:textColor="@color/design_default_color_primary"/>
+    </RelativeLayout>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

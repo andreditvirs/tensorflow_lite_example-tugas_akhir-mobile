@@ -33,8 +33,12 @@ import android.util.TypedValue;
 import android.widget.Toast;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.Timer;
+import java.util.TimerTask;
 
 import org.tensorflow.lite.examples.detection.customview.OverlayView;
 import org.tensorflow.lite.examples.detection.customview.OverlayView.DrawCallback;
@@ -59,7 +63,7 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
   private static final String TF_OD_API_LABELS_FILE = "labelmap.txt";
   private static final DetectorMode MODE = DetectorMode.TF_OD_API;
   // Minimum detection confidence to track a detection.
-  private static final float MINIMUM_CONFIDENCE_TF_OD_API = 0.5f;
+  private static final float MINIMUM_CONFIDENCE_TF_OD_API = 0.6f;
   private static final boolean MAINTAIN_ASPECT = false;
   private static final Size DESIRED_PREVIEW_SIZE = new Size(640, 480);
   private static final boolean SAVE_PREVIEW_BITMAP = false;
@@ -87,93 +91,98 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
 
   /* Custom variable */
   TextToSpeech tts;
-  List<Detector.Recognition> tempMappedRecognitions =
-          new ArrayList<Detector.Recognition>();
+  List<String> tempMappedRecognitions =
+          new ArrayList<String>();
+  private Calendar calendar = Calendar.getInstance();
+  private Timer timer;
+  private Date date;
+  private boolean isReadyTimer = false;
 
-//  private String translate(String text){
-//    switch (text){
-//      case "person" : return "orang";
-//      case "bicycle" : return "sepeda";
-//      case "car" : return "mobil";
-//      case "motorcycle" : return "sepeda motor";
-//      case "airplane": return "pesawat terbang";
-//      case "bus": return "bis";
-//      case "train": return "kereta";
-//      case "truck": return "truk";
-//      case "boat": return "perahu";
-//      case "traffic light": return "lampu lalu lintas";
-//      case "fire hydrant": return "alat pemadam kebakaran";
-//      case "stop sign": return "tanda berhenti";
-//      case "parking meter": return "meteran parkir";
-//      case "bench": return "bangku";
-//      case "bird": return "burung";
-//      case "cat": return "kucing";
-//      case "dog": return "anjing";
-//      case "horse": return "kuda";
-//      case "sheep": return "domba";
-//      case "cow": return "lembu";
-//      case "elephant": return "gajah";
-//      case "bear": return "beruang";
-//      case "zebra": return "zebra";
-//      case "giraffe": return "jerapah";
-//      case "backpack": return "ransel";
-//      case "umbrella": return "payung";
-//      case "handbag": return "tas tangan";
-//      case "tie": return "dasi";
-//      case "suitcase": return "koper";
-//      case "frisbee": return "piring lempar";
-//      case "skis": return "ski";
-//      case "snowboard": return "papan seluncur";
-//      case "sports ball": return "bola sport";
-//      case "kite": return "layang-layang";
-//      case "baseball bat": return "tongkat pemukul baseball";
-//      case "baseball glove": return "sarung baseball";
-//      case "skateboard": return "papan luncur";
-//      case "surfboard": return "papan selancar";
-//      case "tennis racket": return "raket tenis";
-//      case "bottle": return "botol";
-//      case "wine glass": return "gelas anggur";
-//      case "cup": return "cangkir";
-//      case "fork": return "garpu";
-//      case "knife": return "pisau";
-//      case "spoon": return "sendok";
-//      case "bowl": return "banana";
-//      case "apple": return "apel";
-//      case "sandwich": return "sandwich";
-//      case "orange": return "jeruk";
-//      case "broccoli": return "brokoli";
-//      case "carrot": return "wortel";
-//      case "hot dog": return "Hot Dog";
-//      case "pizza": return "Pizza";
-//      case "donut": return "donat";
-//      case "cake": return "kue";
-//      case "chair": return "kursi";
-//      case "couch": return "sofa";
-//      case "potted plant": return "tanaman di dalam pot";
-//      case "bed": return "tempat tidur";
-//      case "dining table": return "meja makan";
-//      case "toilet": return "toilet";
-//      case "tv": return "televisi";
-//      case "laptop": return "laptop";
-//      case "mouse": return "mouse";
-//      case "remote": return "remote";
-//      case "keyboard": return "papan ketik";
-//      case "cell phone": return "telpon selular";
-//      case "microwave": return "microwave";
-//      case "oven": return "oven";
-//      case "toaster": return "pemanggang roti";
-//      case "sink": return "wastafel";
-//      case "refrigerator": return "kulkas";
-//      case "book": return "buku";
-//      case "": return "jam";
-//	case "": return "vas";
-// 	case "": return "gunting";
-//	case "": return "boneka beruang";
-//	case "": return "pengering rambut";
-//	case "": return "sikat gigi";
-//	default: return "";
-//    }
-//  }
+  private String translate(String text){
+    switch (text){
+      case "person" : return "orang";
+      case "bicycle" : return "sepeda";
+      case "car" : return "mobil";
+      case "motorcycle" : return "sepeda motor";
+      case "airplane": return "pesawat terbang";
+      case "bus": return "bis";
+      case "train": return "kereta";
+      case "truck": return "truk";
+      case "boat": return "perahu";
+      case "traffic light": return "lampu lalu lintas";
+      case "fire hydrant": return "alat pemadam kebakaran";
+      case "stop sign": return "tanda berhenti";
+      case "parking meter": return "meteran parkir";
+      case "bench": return "bangku";
+      case "bird": return "burung";
+      case "cat": return "kucing";
+      case "dog": return "anjing";
+      case "horse": return "kuda";
+      case "sheep": return "domba";
+      case "cow": return "lembu";
+      case "elephant": return "gajah";
+      case "bear": return "beruang";
+      case "zebra": return "zebra";
+      case "giraffe": return "jerapah";
+      case "backpack": return "ransel";
+      case "umbrella": return "payung";
+      case "handbag": return "tas tangan";
+      case "tie": return "dasi";
+      case "suitcase": return "koper";
+      case "frisbee": return "piring lempar";
+      case "skis": return "ski";
+      case "snowboard": return "papan seluncur";
+      case "sports ball": return "bola sport";
+      case "kite": return "layang-layang";
+      case "baseball bat": return "tongkat pemukul baseball";
+      case "baseball glove": return "sarung baseball";
+      case "skateboard": return "papan luncur";
+      case "surfboard": return "papan selancar";
+      case "tennis racket": return "raket tenis";
+      case "bottle": return "botol";
+      case "wine glass": return "gelas anggur";
+      case "cup": return "cangkir";
+      case "fork": return "garpu";
+      case "knife": return "pisau";
+      case "spoon": return "sendok";
+      case "bowl": return "mangkok";
+      case "banana": return "pisang";
+      case "apple": return "apel";
+      case "sandwich": return "sandwich";
+      case "orange": return "jeruk";
+      case "broccoli": return "brokoli";
+      case "carrot": return "wortel";
+      case "hot dog": return "Hot Dog";
+      case "pizza": return "Pizza";
+      case "donut": return "donat";
+      case "cake": return "kue";
+      case "chair": return "kursi";
+      case "couch": return "sofa";
+      case "potted plant": return "tanaman di dalam pot";
+      case "bed": return "tempat tidur";
+      case "dining table": return "meja makan";
+      case "toilet": return "toilet";
+      case "tv": return "televisi";
+      case "laptop": return "laptop";
+      case "mouse": return "mouse";
+      case "remote": return "remote";
+      case "keyboard": return "papan ketik";
+      case "cell phone": return "telpon selular";
+      case "microwave": return "microwave";
+      case "oven": return "oven";
+      case "toaster": return "pemanggang roti";
+      case "sink": return "wastafel";
+      case "refrigerator": return "kulkas";
+      case "book": return "buku";
+      case "clock": return "jam";
+      case "vase": return "vas";
+      case "scissors": return "gunting";
+      case "teddy bear": return "boneka beruang";
+      case "hair drier": return "pengering rambut";
+      case "toothbrush": return "sikat gigi";
+      default: return "tidak dikenali";
+    }
+  }
 
   @Override
   public void onPreviewSizeChosen(final Size size, final int rotation) {
@@ -294,32 +303,41 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
             for (final Detector.Recognition result : results) {
               final RectF location = result.getLocation();
               if (location != null && result.getConfidence() >= minimumConfidence) {
-                canvas.drawRect(location, paint);
-                tts = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
+                // save value in arraylist, if the past array contain the string don't add it
+                // so, the 'tts' will not speak it after 3 seconds
+                if(!isReadyTimer){
+                  timer = new Timer();
+                  calendar.add(Calendar.SECOND, 10);
+                }
+
+                date = calendar.getTime();
+                System.out.println("DATE IS = " + date);
+                timer.schedule(new TimerTask() {
                   @Override
-                  public void onInit(int status) {
-                    if (status != TextToSpeech.ERROR) {
-                      tts.setLanguage(new Locale("id", "ID"));
-                      tts.speak(result.getTitle(), TextToSpeech.QUEUE_FLUSH, null);
-                      Toast.makeText(getApplicationContext(), result.getTitle(), Toast.LENGTH_SHORT).show();
-                    }
+                  public void run() {
+                    tts = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
+                      @Override
+                      public void onInit(int status) {
+                        for(String tempMappedRecognition : tempMappedRecognitions){
+                          LOGGER.d("DETECTION IS = " + tempMappedRecognition);
+                          if (status != TextToSpeech.ERROR) {
+                            tts.setLanguage(new Locale("id", "ID"));
+                            tts.speak(translate(tempMappedRecognition), TextToSpeech.QUEUE_ADD, null);
+                            Toast.makeText(getApplicationContext(), tempMappedRecognition, Toast.LENGTH_SHORT).show();
+                          }
+                        }
+                        isReadyTimer = false;
+                        tempMappedRecognitions.clear();
+                      }
+                    });
                   }
-                });
-//                for (final Detector.Recognition tempResult : tempMappedRecognitions) {
-//                  if(result.getTitle().equals(tempResult.getTitle())){
-//
-//                  }
-//                  tts = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
-//                    @Override
-//                    public void onInit(int status) {
-//                      if (status != TextToSpeech.ERROR) {
-//                        tts.setLanguage(new Locale("id", "ID"));
-//                        tts.speak(result.getTitle(), TextToSpeech.QUEUE_FLUSH, null);
-//                        Toast.makeText(getApplicationContext(), result.getTitle(), Toast.LENGTH_SHORT).show();
-//                      }
-//                    }
-//                  });
-//                }
+                }, date);
+
+                if (!tempMappedRecognitions.contains(result.getTitle())) {
+                  tempMappedRecognitions.add(result.getTitle());
+                  System.out.println("HELLO = " + tempMappedRecognitions.toString());
+                }
+//                canvas.drawRect(location, paint);
                 cropToFrameTransform.mapRect(location);
 
                 result.setLocation(location);
