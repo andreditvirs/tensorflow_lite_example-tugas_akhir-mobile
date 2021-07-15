@@ -16,6 +16,9 @@
 
 package org.tensorflow.lite.examples.detection;
 
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.Config;
 import android.graphics.Canvas;
@@ -26,17 +29,30 @@ import android.graphics.Paint.Style;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.media.ImageReader.OnImageAvailableListener;
+import android.os.Bundle;
+import android.os.Handler;
 import android.os.SystemClock;
+import android.speech.RecognizerIntent;
 import android.speech.tts.TextToSpeech;
 import android.util.Size;
 import android.util.TypedValue;
+import android.view.View;
+import android.widget.Button;
+import android.widget.ImageButton;
+import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.annotation.Nullable;
+
 import java.io.IOException;
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -68,6 +84,7 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
   private static final Size DESIRED_PREVIEW_SIZE = new Size(640, 480);
   private static final boolean SAVE_PREVIEW_BITMAP = false;
   private static final float TEXT_SIZE_DIP = 10;
+  private static final int REQUEST_CODE_SPEECH_INPUT = 1000;
   OverlayView trackingOverlay;
   private Integer sensorOrientation;
 
@@ -91,12 +108,21 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
 
   /* Custom variable */
   TextToSpeech tts;
+    ArrayList<String> tempMappedRecognitionsHistory = new ArrayList<>();;
   List<String> tempMappedRecognitions =
           new ArrayList<String>();
-  private Calendar calendar = Calendar.getInstance();
-  private Timer timer;
-  private Date date;
-  private boolean isReadyTimer = false;
+  private Timer timer = new Timer();
+  private boolean isReadySpeak = false;
+  private boolean isBoundingBoxes = false;
+  private boolean isTutorial = false;
+  private boolean isReadyClickedTutorial1 = false;
+  private boolean isReadyClickedTutorial2 = false;
+  private TextView txtVListen;
+  private TextView txtVSpeak;
+  private int timerCounter = 6;
+  private ImageButton imgBtnSpeak;
+  private ImageButton imgBtnSettings;
+  private float minConfidence = 0.6f;
 
   private String translate(String text){
     switch (text){
@@ -185,6 +211,194 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
   }
 
   @Override
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+
+    SharedPreferences mSettings = getApplicationContext().getSharedPreferences("Settings", Context.MODE_PRIVATE);
+    if(mSettings.getInt("timerCounter", 0) != 0){
+      timerCounter = mSettings.getInt("timerCounter", 0);
+    }
+    if(mSettings.getBoolean("isBoundingBoxes", false)){
+      isBoundingBoxes = mSettings.getBoolean("isBoundingBoxes", false);
+    }
+    if(mSettings.getFloat("minConfidence", 0) != 0){
+      minConfidence = mSettings.getFloat("minConfidence", 0);
+    }
+    if(mSettings.getBoolean("isTutorial", false)){
+      boolean isTutorial = mSettings.getBoolean("isTutorial", false);
+      if(isTutorial){
+        this.isTutorial = true;
+
+        SharedPreferences.Editor editor = mSettings.edit();
+        isTutorial = false;
+        editor.putBoolean("isTutorial", isTutorial);
+        editor.apply();
+      }
+    }
+
+    if(mSettings.getStringSet("tempMappedRecognitionsHistory", null) != null){
+      Set<String> set = mSettings.getStringSet("tempMappedRecognitionsHistory", null);
+      tempMappedRecognitionsHistory.addAll(set);
+    }
+    if(mSettings.getBoolean("isDeletedHistory", false)){
+      boolean isDeletedHistory = mSettings.getBoolean("isDeletedHistory", false);
+      if(isDeletedHistory){
+        tempMappedRecognitionsHistory.clear();
+
+        SharedPreferences.Editor editor = mSettings.edit();
+        isDeletedHistory = false;
+        editor.putBoolean("isDeletedHistory", isDeletedHistory);
+        editor.apply();
+      }
+    }
+
+    // tts intialization
+    try{
+      tts = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
+        @Override
+        public void onInit(int status) {
+          if (status != TextToSpeech.ERROR && !isReadySpeak) {
+            tts.setLanguage(new Locale("id", "ID"));
+          }
+        }
+      });
+    }catch(Exception e){
+      LOGGER.d("ERROR = " + e.getMessage());
+    }
+
+    imgBtnSpeak = findViewById(R.id.imgbtn_speak);
+    txtVSpeak = findViewById(R.id.txtV_speak);
+    imgBtnSpeak.setOnClickListener(new View.OnClickListener() {
+      @Override
+      public void onClick(View v) {
+        speak();
+      }
+    });
+
+    txtVListen = findViewById(R.id.txtV_listen);
+    imgBtnSettings = findViewById(R.id.imgBtn_settings);
+    imgBtnSettings.setOnClickListener(new View.OnClickListener() {
+      @Override
+      public void onClick(View v) {
+        SharedPreferences.Editor editor = mSettings.edit();
+        Set<String> set = new HashSet<String>();
+        set.addAll(tempMappedRecognitionsHistory);
+        editor.putStringSet("tempMappedRecognitionsHistory", set);
+        editor.apply();
+
+        Intent intent = new Intent(DetectorActivity.this, SettingsActivity.class);
+        intent.putExtra("timerCounter", timerCounter);
+        intent.putExtra("minConfidence", minConfidence);
+        intent.putExtra("isBoundingBoxes", isBoundingBoxes);
+        intent.putStringArrayListExtra("tempMappedRecognitionsHistory", tempMappedRecognitionsHistory);
+        startActivity(intent);
+        finish();
+      }
+    });
+
+    // set timer
+    // save value in arraylist (in mehtod runnable below), if the past array contain the string don't add it
+    // so, the 'tts' will not speak it after x seconds (default 10 seconds)
+    if(!isTutorial){
+      timer.scheduleAtFixedRate(new TimerTask() {
+        @Override
+        public void run() {
+          runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+              if(tempMappedRecognitions.size() != 0 && !isReadySpeak){
+                for(String tempMappedRecognition : tempMappedRecognitions){
+                  tts.speak(translate(tempMappedRecognition), TextToSpeech.QUEUE_ADD, null);
+                  Toast.makeText(getApplicationContext(), tempMappedRecognition, Toast.LENGTH_SHORT).show();
+                }
+                tempMappedRecognitions.clear();
+              }
+            }
+          });
+          }
+      }, 6*1000, timerCounter*1000);
+    }
+
+    // set tutorial tour
+    // tts guide tour
+    if(isTutorial){
+      textToSpeechFlush("Aplikasi akan memulai tutorial. Ikuti petunjuk untuk melatih kemampuan dalam menggunakan aplikasi ini.");
+      timer.schedule(new TimerTask() {
+        @Override
+        public void run() {
+          textToSpeechFlush("Saya akan memandu Anda dengan menggunakan petunjuk suara dan penempatan posisi jari untuk mengaktifkan fungsi tertentu");
+          timer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+              textToSpeechFlush("Pertama - tama, aplikasi ini terbatas hanya memiliki kemampuan dalam mendeteksi 80 objek, seperti kursi, laptop, televisi, orang, sepeda motor, dan lainnya. Anda mendapatkan informasi mengenai apa saja yang dapat dideteksi pada manual aplikasi");
+              timer.schedule(new TimerTask() {
+                @Override
+                public void run() {
+                  textToSpeechFlush("Kedua, aplikasi ini memiliki beberapa parameter yang dapat diatur yakni, waktu delay, penanda, dan akurasi");
+                  timer.schedule(new TimerTask() {
+                    @Override
+                    public void run() {
+                      textToSpeechFlush("Semua parameter dapat diatur menggunakan suara, dengan menekan tombol yang ada di bagian tengah bawah aplikasi ini. Namun, fitur ini membutuhkan koneksi internet, pastikan Anda memiliki koneksi internet yang baik.");
+                      timer.schedule(new TimerTask() {
+                        @Override
+                        public void run() {
+                          textToSpeechFlush("Mari, kita lakukan latihan pertama. Tekan tombol perekam perintah suara yang ada di bagian tengah bawah");
+                          timer.schedule(new TimerTask() {
+                            @Override
+                            public void run() {
+                              if(isReadyClickedTutorial1 == false){
+                                textToSpeechFlush("Tombol belum ditekan, silahkan cari tombolnya sekali lagi");
+                                timer.schedule(new TimerTask() {
+                                  @Override
+                                  public void run() {
+                                    if(isReadyClickedTutorial1 == false){
+                                      textToSpeechFlush("Tombol belum ditekan, tutorial akan diakhiri, coba mengulangi tutorial dengan menekan pojok kanan atas dua kali. Terima kasih");
+                                      timer.schedule(new TimerTask() {
+                                        @Override
+                                        public void run() {
+                                          isTutorial = false;
+                                          timer.cancel();
+                                          timer = new Timer();
+                                          tempMappedRecognitions.clear();
+                                          timer.scheduleAtFixedRate(new TimerTask() {
+                                            @Override
+                                            public void run() {
+                                              runOnUiThread(new Runnable() {
+                                                @Override
+                                                public void run() {
+                                                  if(tempMappedRecognitions.size() != 0 && !isReadySpeak){
+                                                    for(String tempMappedRecognition : tempMappedRecognitions){
+                                                      tts.speak(translate(tempMappedRecognition), TextToSpeech.QUEUE_ADD, null);
+                                                      Toast.makeText(getApplicationContext(), tempMappedRecognition, Toast.LENGTH_SHORT).show();
+                                                    }
+                                                    tempMappedRecognitions.clear();
+                                                  }
+                                                }
+                                              });
+                                                }
+                                          }, timerCounter*1000, timerCounter*1000);
+                                        }
+                                      }, 12*1000);
+                                    }
+                                  }
+                                }, 15*1000); // ok
+                              }
+                            }
+                          }, 15*1000); // ok
+                        }
+                      }, 15*1000); // ok
+                    }
+                  }, 10*1000); // ok
+                }
+              }, 20*1000); // ok
+            }
+          }, 10*1000); // ok
+        }
+      }, 10*1000); // ok
+    }
+  }
+
+  @Override
   public void onPreviewSizeChosen(final Size size, final int rotation) {
     final float textSizePx =
         TypedValue.applyDimension(
@@ -249,6 +463,220 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
     tracker.setFrameConfiguration(previewWidth, previewHeight, sensorOrientation);
   }
 
+  private void speak(){
+    if(isTutorial){
+      isReadyClickedTutorial1 = true;
+      textToSpeechFlush("Selamat Anda telah berhasil menekan tombol perintah suara. Disini ada beberapa perintah yang perlu Anda hafal, diantaranya");
+      timer.schedule(new TimerTask() {
+        @Override
+        public void run() {
+          textToSpeechFlush("Pertama katakan timer 10, maka aplikasi akan mengatur waktu delay dengan jeda 10 detik, katakan timer 6, maka aplikasi akan mengautr waktu delay dengan jeda 6 detik");
+          timer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+              textToSpeechFlush("Sekarang, coba katakan suatu perintah");
+              timer.schedule(new TimerTask() {
+                @Override
+                public void run() {
+                  Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+                  intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                  intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, new Locale("id", "ID"));
+                  intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Ada yang bisa saya bantu?");
+                  isReadySpeak = true;
+
+                  try {
+                    startActivityForResult(intent, REQUEST_CODE_SPEECH_INPUT);
+                  }catch(Exception e){
+                    //
+                  }
+                }
+              }, 5*1000);
+            }
+          }, 12*1000);
+        }
+      }, 8*1000);
+    }else{
+      Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+      intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+      intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, new Locale("id", "ID"));
+      intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Ada yang bisa saya bantu?");
+      isReadySpeak = true;
+
+      try {
+        startActivityForResult(intent, REQUEST_CODE_SPEECH_INPUT);
+      }catch(Exception e){
+        isReadySpeak = false;
+        Toast.makeText(this, "Error = " + e.getMessage(), Toast.LENGTH_SHORT).show();
+      }
+    }
+  }
+
+  private void listen(String[] arrayText){
+    ArrayList<String> tempArrayText = new ArrayList<>();
+    for(int i = 0; i < arrayText.length; i++){
+      tempArrayText.add(arrayText[i].toLowerCase());
+    }
+    if(tempArrayText.contains("timer")){
+      if(isTutorial){
+        int index = tempArrayText.indexOf("timer");
+        try{
+          if(Integer.parseInt(arrayText[index + 1]) >= 6 && Integer.parseInt(arrayText[index + 1]) <= 20){
+            timerCounter = Integer.parseInt(arrayText[index + 1]);
+            // re-set timer
+            timer.cancel();
+            timer = new Timer();
+            timer.scheduleAtFixedRate(new TimerTask() {
+              @Override
+              public void run() {
+                runOnUiThread(new Runnable() {
+                  @Override
+                  public void run() {
+                    for(String tempMappedRecognition : tempMappedRecognitions){
+                      tts.speak(translate(tempMappedRecognition), TextToSpeech.QUEUE_ADD, null);
+                      Toast.makeText(getApplicationContext(), tempMappedRecognition, Toast.LENGTH_SHORT).show();
+                    }
+                    tempMappedRecognitions.clear();
+                  }
+                });
+              }
+            }, timerCounter*1000, timerCounter*1000);
+            textToSpeechFlush("Timer telah diatur ke " + arrayText[index + 1]);
+            isReadyClickedTutorial2 = true;
+            if(isReadyClickedTutorial2){
+              timer.schedule(new TimerTask() {
+                @Override
+                public void run() {
+                  textToSpeechFlush("Selamat Anda telah bisa menggunakan perekam suara. Lakukan latihan perintah yang lain. Setelah ini tutorial akan diakhiri. Anda bisa membuka petunjuk suara ini lagi dengan menekan tombol pengaturan di sebelah pojok kanan atas sebanyak dua kali. Selamat mencoba!");
+                  timer.schedule(new TimerTask() {
+                    @Override
+                    public void run() {
+                      isTutorial = false;
+                      isReadyClickedTutorial1 = false;
+                      isReadyClickedTutorial2 = false;
+                      timer.cancel();
+                      timer = new Timer();
+                      tempMappedRecognitions.clear();
+                      timer.scheduleAtFixedRate(new TimerTask() {
+                        @Override
+                        public void run() {
+                          runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                              if(tempMappedRecognitions.size() != 0 && !isReadySpeak){
+                                for(String tempMappedRecognition : tempMappedRecognitions){
+                                  tts.speak(translate(tempMappedRecognition), TextToSpeech.QUEUE_ADD, null);
+                                  Toast.makeText(getApplicationContext(), tempMappedRecognition, Toast.LENGTH_SHORT).show();
+                                }
+                                tempMappedRecognitions.clear();
+                              }
+                            }
+                          });
+                        }
+                      }, timerCounter*1000, timerCounter*1000);
+                    }
+                  }, 24*1000);
+                }
+              }, 2*1000);
+            }
+          }else{
+            textToSpeechFlush("Timer tidak bisa diatur ke " + arrayText[index + 1] + "gunakan format angka setelah mengucapkan timer");
+          }
+        }catch(Exception ex){
+          textToSpeechFlush("Perintah tidak lengkap, coba katakan dengan benar dan ulangi sekali sampai berhasil");
+        }
+      }else{
+        int index = tempArrayText.indexOf("timer");
+        try{
+          if(Integer.parseInt(arrayText[index + 1]) >= 6 && Integer.parseInt(arrayText[index + 1]) <= 20){
+            timerCounter = Integer.parseInt(arrayText[index + 1]);
+            // re-set timer
+            timer.cancel();
+            timer = new Timer();
+            timer.scheduleAtFixedRate(new TimerTask() {
+              @Override
+              public void run() {
+                runOnUiThread(new Runnable() {
+                  @Override
+                  public void run() {
+                    for(String tempMappedRecognition : tempMappedRecognitions){
+                      tts.speak(translate(tempMappedRecognition), TextToSpeech.QUEUE_ADD, null);
+                      Toast.makeText(getApplicationContext(), tempMappedRecognition, Toast.LENGTH_SHORT).show();
+                    }
+                    tempMappedRecognitions.clear();
+                  }
+                });
+              }
+            }, timerCounter*1000, timerCounter*1000);
+            textToSpeechFlush("Timer telah diatur ke " + arrayText[index + 1]);
+          }else{
+            textToSpeechFlush("Timer tidak bisa diatur ke " + arrayText[index + 1]);
+          }
+        }catch(Exception ex){
+          textToSpeechFlush("Perintah tidak lengkap");
+        }
+      }
+    }else if(tempArrayText.contains("tutup") && tempArrayText.contains("aplikasi")){
+      finish();
+      System.exit(0);
+    }else if(tempArrayText.contains("tampilkan") && tempArrayText.contains("penanda")){
+      isBoundingBoxes = true;
+      textToSpeechFlush("Menampilkan Penanda Objek");
+    }else if(tempArrayText.contains("hilangkan") && tempArrayText.contains("penanda")){
+      isBoundingBoxes = false;
+      textToSpeechFlush("Menghilangkan Penanda Objek");
+    }else if(tempArrayText.contains("akurasi") && tempArrayText.contains("normal")){
+      minConfidence = MINIMUM_CONFIDENCE_TF_OD_API;
+      textToSpeechFlush("Mengembalikan Akurasi ke 60 persen");
+    }else if(tempArrayText.contains("akurasi")){
+      int index = tempArrayText.indexOf("akurasi");
+      try{
+        if(Integer.parseInt(arrayText[index + 1]) >= 50 && Integer.parseInt(arrayText[index + 1]) <= 99){
+          minConfidence = Integer.parseInt(arrayText[index + 1]);
+          minConfidence = (Float) minConfidence/100;
+          textToSpeechFlush("Tingkat Akurasi diatur ke " + Integer.parseInt(arrayText[index + 1]));
+        }else{
+          textToSpeechFlush("Tingkat Akurasi tidak bisa diatur ke " + Integer.parseInt(arrayText[index + 1]));
+        }
+      }catch(Exception ex){
+        textToSpeechFlush("Perintah tidak lengkap");
+      }
+    }else{
+      textToSpeechFlush("Perintah tidak dikenali");
+    }
+  }
+
+  private void textToSpeechFlush(String text){
+    tts = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
+      @Override
+      public void onInit(int status) {
+        if (status != TextToSpeech.ERROR && !isReadySpeak) {
+          txtVListen.setText(text);
+          tts.setLanguage(new Locale("id", "ID"));
+          // get the next value of array to get value timer
+          tts.speak(text, TextToSpeech.QUEUE_FLUSH, null);
+        }
+      }
+    });
+  }
+
+  @Override
+  protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+    super.onActivityResult(requestCode, resultCode, data);
+
+    switch (requestCode){
+      case REQUEST_CODE_SPEECH_INPUT: {
+        if(resultCode == RESULT_OK && data != null){
+          ArrayList<String> result = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+          String text = result.get(0);
+          txtVSpeak.setText(text);
+          listen(text.split(" "));
+        }
+        isReadySpeak = false;
+        break;
+      }
+    }
+  }
+
   @Override
   protected void processImage() {
     ++timestamp;
@@ -293,7 +721,7 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
             float minimumConfidence = MINIMUM_CONFIDENCE_TF_OD_API;
             switch (MODE) {
               case TF_OD_API:
-                minimumConfidence = MINIMUM_CONFIDENCE_TF_OD_API;
+                minimumConfidence = minConfidence;
                 break;
             }
 
@@ -303,52 +731,27 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
             for (final Detector.Recognition result : results) {
               final RectF location = result.getLocation();
               if (location != null && result.getConfidence() >= minimumConfidence) {
-                // save value in arraylist, if the past array contain the string don't add it
-                // so, the 'tts' will not speak it after 3 seconds
-                if(!isReadyTimer){
-                  timer = new Timer();
-                  calendar.add(Calendar.SECOND, 10);
-                }
-
-                date = calendar.getTime();
-                System.out.println("DATE IS = " + date);
-                timer.schedule(new TimerTask() {
-                  @Override
-                  public void run() {
-                    tts = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
-                      @Override
-                      public void onInit(int status) {
-                        for(String tempMappedRecognition : tempMappedRecognitions){
-                          LOGGER.d("DETECTION IS = " + tempMappedRecognition);
-                          if (status != TextToSpeech.ERROR) {
-                            tts.setLanguage(new Locale("id", "ID"));
-                            tts.speak(translate(tempMappedRecognition), TextToSpeech.QUEUE_ADD, null);
-                            Toast.makeText(getApplicationContext(), tempMappedRecognition, Toast.LENGTH_SHORT).show();
-                          }
-                        }
-                        isReadyTimer = false;
-                        tempMappedRecognitions.clear();
-                      }
-                    });
-                  }
-                }, date);
 
                 if (!tempMappedRecognitions.contains(result.getTitle())) {
+                  if (!tempMappedRecognitionsHistory.contains(translate(result.getTitle()))) {
+                    tempMappedRecognitionsHistory.add(translate(result.getTitle()));
+                  }
                   tempMappedRecognitions.add(result.getTitle());
-                  System.out.println("HELLO = " + tempMappedRecognitions.toString());
                 }
-//                canvas.drawRect(location, paint);
-                cropToFrameTransform.mapRect(location);
 
-                result.setLocation(location);
-                mappedRecognitions.add(result);
+                if(isBoundingBoxes){
+                  /* COMMENT/UNCOMMENT for bounding boxes */
+                  canvas.drawRect(location, paint);
+                  cropToFrameTransform.mapRect(location);
+
+                  result.setLocation(location);
+                  mappedRecognitions.add(result);
+                  /* COMMENT/UNCOMMENT for bounding boxes */
+                }
               }
             }
 
             tracker.trackResults(mappedRecognitions, currTimestamp);
-            System.out.println("OUTPUT = " + mappedRecognitions + "><" + tempMappedRecognitions);
-            System.out.println("IS EQUAL? = " + mappedRecognitions.equals(tempMappedRecognitions));
-
             trackingOverlay.postInvalidate();
 
             computingDetection = false;
@@ -360,6 +763,12 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
                     showFrameInfo(previewWidth + "x" + previewHeight);
                     showCropInfo(cropCopyBitmap.getWidth() + "x" + cropCopyBitmap.getHeight());
                     showInference(lastProcessingTimeMs + "ms");
+
+                    if(tempMappedRecognitions.size() != 0){
+                      txtVListen.setText(tempMappedRecognitions.toString());
+                    }else{
+                      txtVListen.setText("Menunggu...");
+                    }
                   }
                 });
           }
