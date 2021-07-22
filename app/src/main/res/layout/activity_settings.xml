@@ -65,13 +65,14 @@
             android:layout_height="40dp"
             android:background="@color/design_default_color_primary_dark"
             android:src="@drawable/ic_baseline_remove_24"/>
+
         <TextView
             android:id="@+id/txtV_delay"
             android:layout_width="50dp"
-            android:layout_height="match_parent"
+            android:layout_height="wrap_content"
             android:padding="5dp"
-            android:text="10s"
-            android:textAlignment="center"/>
+            android:text="3s"
+            android:textAlignment="center" />
         <ImageButton
             android:id="@+id/imgBtn_add_delay"
             android:layout_width="40dp"
@@ -174,9 +175,17 @@
                 android:textSize="20dp"
                 android:textColor="@color/design_default_color_primary_dark"/>
             <ImageButton
+                android:id="@+id/imgBtn_all_object"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginHorizontal="5dp"
+                android:background="@color/design_default_color_primary"
+                android:src="@drawable/ic_baseline_featured_play_list_24"/>
+            <ImageButton
                 android:id="@+id/imgBtn_remove_history"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
+                android:layout_marginHorizontal="5dp"
                 android:background="@color/tfe_color_primary_dark"
                 android:src="@drawable/ic_baseline_delete_sweep_24"/>
         </LinearLayout>
@@ -192,7 +201,7 @@
         android:id="@+id/lL_based_on"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_above="@id/btn_settings"
+        android:layout_above="@id/lL_btn_save_settings"
         android:padding="20dp"
         android:orientation="vertical">
         <TextView
@@ -205,14 +214,19 @@
             android:layout_height="wrap_content"
             android:src="@drawable/tfl2_logo_dark"/>
     </LinearLayout>
-    <Button
-        android:id="@+id/btn_settings"
-        android:layout_alignParentBottom="true"
-        android:layout_margin="20dp"
+    <LinearLayout
+        android:id="@+id/lL_btn_save_settings"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Save Settings"
-        android:background="@color/design_default_color_primary"
-        android:textColor="@color/cardview_light_background"
-        />
+        android:layout_alignParentBottom="true"
+        android:background="@color/cardview_light_background"
+        android:padding="20dp">
+        <Button
+            android:id="@+id/btn_settings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Save Settings"
+            android:background="@color/design_default_color_primary"
+            android:textColor="@color/cardview_light_background" />
+    </LinearLayout>
 </RelativeLayout>

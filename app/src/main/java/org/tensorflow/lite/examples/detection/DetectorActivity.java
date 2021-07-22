@@ -117,9 +117,11 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
   private boolean isTutorial = false;
   private boolean isReadyClickedTutorial1 = false;
   private boolean isReadyClickedTutorial2 = false;
+  private boolean isReadyClickedTutorial3 = false;
+  private boolean isReadyClickedTutorial4 = false;
   private TextView txtVListen;
   private TextView txtVSpeak;
-  private int timerCounter = 6;
+  private int timerCounter = 3;
   private ImageButton imgBtnSpeak;
   private ImageButton imgBtnSettings;
   private float minConfidence = 0.6f;
@@ -162,7 +164,7 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
       case "kite": return "layang-layang";
       case "baseball bat": return "tongkat pemukul baseball";
       case "baseball glove": return "sarung baseball";
-      case "skateboard": return "papan luncur";
+      case "skateboard": return "papan skateboard";
       case "surfboard": return "papan selancar";
       case "tennis racket": return "raket tenis";
       case "bottle": return "botol";
@@ -229,10 +231,7 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
       if(isTutorial){
         this.isTutorial = true;
 
-        SharedPreferences.Editor editor = mSettings.edit();
-        isTutorial = false;
-        editor.putBoolean("isTutorial", isTutorial);
-        editor.apply();
+        setSharedPreferencesBoolean("isTutorial", false);
       }
     }
 
@@ -244,34 +243,19 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
       boolean isDeletedHistory = mSettings.getBoolean("isDeletedHistory", false);
       if(isDeletedHistory){
         tempMappedRecognitionsHistory.clear();
-
-        SharedPreferences.Editor editor = mSettings.edit();
-        isDeletedHistory = false;
-        editor.putBoolean("isDeletedHistory", isDeletedHistory);
-        editor.apply();
+        setSharedPreferencesBoolean("isDeletedHistory", false);
       }
     }
 
     // tts intialization
-    try{
-      tts = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
-        @Override
-        public void onInit(int status) {
-          if (status != TextToSpeech.ERROR && !isReadySpeak) {
-            tts.setLanguage(new Locale("id", "ID"));
-          }
-        }
-      });
-    }catch(Exception e){
-      LOGGER.d("ERROR = " + e.getMessage());
-    }
+    initializationTTS();
 
     imgBtnSpeak = findViewById(R.id.imgbtn_speak);
     txtVSpeak = findViewById(R.id.txtV_speak);
     imgBtnSpeak.setOnClickListener(new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        speak();
+          speak();
       }
     });
 
@@ -280,19 +264,64 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
     imgBtnSettings.setOnClickListener(new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        SharedPreferences.Editor editor = mSettings.edit();
-        Set<String> set = new HashSet<String>();
-        set.addAll(tempMappedRecognitionsHistory);
-        editor.putStringSet("tempMappedRecognitionsHistory", set);
-        editor.apply();
+        if(isTutorial){
+            timer.cancel();
+            timer = new Timer();
+            tts.shutdown();
+            textToSpeechFlush("Tutorial akan diakhiri");
+            timer.schedule(new TimerTask() {
+                @Override
+                public void run() {
+                    textToSpeechFlush("Anda dapat membuka petunjuk suara ini lagi dengan menekan tombol pengaturan di sebelah pojok kanan atas sebanyak dua kali. Selamat mencoba!");
+                    timer.schedule(new TimerTask() {
+                        @Override
+                        public void run() {
+                            isTutorial = false;
+                            setSharedPreferencesBoolean("isTutorial", false);
+                            isReadyClickedTutorial1 = false;
+                            isReadyClickedTutorial2 = false;
+                            isReadyClickedTutorial3 = false;
+                            isReadyClickedTutorial4 = false;
+                            tempMappedRecognitions.clear();
+                            timer.scheduleAtFixedRate(new TimerTask() {
+                                @Override
+                                public void run() {
+                                    runOnUiThread(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            if(tempMappedRecognitions.size() != 0 && !isReadySpeak){
+                                                for(String tempMappedRecognition : tempMappedRecognitions){
+                                                    tts.speak(translate(tempMappedRecognition), TextToSpeech.QUEUE_ADD, null);
+                                                    Toast.makeText(getApplicationContext(), tempMappedRecognition, Toast.LENGTH_SHORT).show();
+                                                }
+                                                tempMappedRecognitions.clear();
+                                            }
+                                        }
+                                    });
+                                }
+                            }, timerCounter*1000, timerCounter*1000);
+                        }
+                    }, 20*1000);
+                }
+            }, 2*1000);
+        }else{
+            tts.shutdown();
+            timer.cancel();
 
-        Intent intent = new Intent(DetectorActivity.this, SettingsActivity.class);
-        intent.putExtra("timerCounter", timerCounter);
-        intent.putExtra("minConfidence", minConfidence);
-        intent.putExtra("isBoundingBoxes", isBoundingBoxes);
-        intent.putStringArrayListExtra("tempMappedRecognitionsHistory", tempMappedRecognitionsHistory);
-        startActivity(intent);
-        finish();
+            SharedPreferences.Editor editor = mSettings.edit();
+            Set<String> set = new HashSet<String>();
+            set.addAll(tempMappedRecognitionsHistory);
+            editor.putStringSet("tempMappedRecognitionsHistory", set);
+            editor.apply();
+
+            Intent intent = new Intent(DetectorActivity.this, SettingsActivity.class);
+            intent.putExtra("timerCounter", timerCounter);
+            intent.putExtra("minConfidence", minConfidence);
+            intent.putExtra("isBoundingBoxes", isBoundingBoxes);
+            intent.putStringArrayListExtra("tempMappedRecognitionsHistory", tempMappedRecognitionsHistory);
+            startActivity(intent);
+            finish();
+        }
       }
     });
 
@@ -316,7 +345,7 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
             }
           });
           }
-      }, 6*1000, timerCounter*1000);
+      }, 3*1000, timerCounter*1000);
     }
 
     // set tutorial tour
@@ -398,6 +427,21 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
     }
   }
 
+  public void initializationTTS(){
+      try{
+          tts = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
+              @Override
+              public void onInit(int status) {
+                  if (status != TextToSpeech.ERROR && !isReadySpeak) {
+                      tts.setLanguage(new Locale("id", "ID"));
+                  }
+              }
+          });
+      }catch(Exception e){
+          LOGGER.d("ERROR = " + e.getMessage());
+      }
+  }
+
   @Override
   public void onPreviewSizeChosen(final Size size, final int rotation) {
     final float textSizePx =
@@ -464,7 +508,7 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
   }
 
   private void speak(){
-    if(isTutorial){
+    if(isTutorial && (isReadyClickedTutorial1 == false)){
       isReadyClickedTutorial1 = true;
       textToSpeechFlush("Selamat Anda telah berhasil menekan tombol perintah suara. Disini ada beberapa perintah yang perlu Anda hafal, diantaranya");
       timer.schedule(new TimerTask() {
@@ -474,23 +518,13 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
           timer.schedule(new TimerTask() {
             @Override
             public void run() {
-              textToSpeechFlush("Sekarang, coba katakan suatu perintah");
+              textToSpeechFlush("Sekarang, coba tekan dan katakan suatu perintah");
               timer.schedule(new TimerTask() {
                 @Override
                 public void run() {
-                  Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-                  intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-                  intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, new Locale("id", "ID"));
-                  intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Ada yang bisa saya bantu?");
-                  isReadySpeak = true;
-
-                  try {
-                    startActivityForResult(intent, REQUEST_CODE_SPEECH_INPUT);
-                  }catch(Exception e){
-                    //
-                  }
+                    checkTutorialProgress(isReadyClickedTutorial2);
                 }
-              }, 5*1000);
+              }, 10*1000);
             }
           }, 12*1000);
         }
@@ -519,6 +553,7 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
     if(tempArrayText.contains("timer")){
       if(isTutorial){
         int index = tempArrayText.indexOf("timer");
+        isReadyClickedTutorial2 = true;
         try{
           if(Integer.parseInt(arrayText[index + 1]) >= 6 && Integer.parseInt(arrayText[index + 1]) <= 20){
             timerCounter = Integer.parseInt(arrayText[index + 1]);
@@ -541,42 +576,25 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
               }
             }, timerCounter*1000, timerCounter*1000);
             textToSpeechFlush("Timer telah diatur ke " + arrayText[index + 1]);
-            isReadyClickedTutorial2 = true;
             if(isReadyClickedTutorial2){
-              timer.schedule(new TimerTask() {
-                @Override
-                public void run() {
-                  textToSpeechFlush("Selamat Anda telah bisa menggunakan perekam suara. Lakukan latihan perintah yang lain. Setelah ini tutorial akan diakhiri. Anda bisa membuka petunjuk suara ini lagi dengan menekan tombol pengaturan di sebelah pojok kanan atas sebanyak dua kali. Selamat mencoba!");
-                  timer.schedule(new TimerTask() {
+                timer.schedule(new TimerTask() {
                     @Override
                     public void run() {
-                      isTutorial = false;
-                      isReadyClickedTutorial1 = false;
-                      isReadyClickedTutorial2 = false;
-                      timer.cancel();
-                      timer = new Timer();
-                      tempMappedRecognitions.clear();
-                      timer.scheduleAtFixedRate(new TimerTask() {
-                        @Override
-                        public void run() {
-                          runOnUiThread(new Runnable() {
+                        textToSpeechFlush("Selanjutnya katakan akurasi 50, maka aplikasi akan mengatur akurasi atau ketepatan perkiraan sebesar 50 persen, katakan akurasi 90, maka aplikasi akan mengatur akurasi sebesar 90, jangan menggunakan akurasi yang terlalu besar atau terlalu kecil, secara normal akurasi berada di kisaran 60");
+                        timer.schedule(new TimerTask() {
                             @Override
                             public void run() {
-                              if(tempMappedRecognitions.size() != 0 && !isReadySpeak){
-                                for(String tempMappedRecognition : tempMappedRecognitions){
-                                  tts.speak(translate(tempMappedRecognition), TextToSpeech.QUEUE_ADD, null);
-                                  Toast.makeText(getApplicationContext(), tempMappedRecognition, Toast.LENGTH_SHORT).show();
-                                }
-                                tempMappedRecognitions.clear();
-                              }
+                                textToSpeechFlush("Sekarang, coba tekan dan katakan suatu perintah");
+                                timer.schedule(new TimerTask() {
+                                    @Override
+                                    public void run() {
+                                        checkTutorialProgress(isReadyClickedTutorial3);
+                                    }
+                                }, 10*1000);
                             }
-                          });
-                        }
-                      }, timerCounter*1000, timerCounter*1000);
+                        }, 28*1000);
                     }
-                  }, 24*1000);
-                }
-              }, 2*1000);
+                }, 5*1000);
             }
           }else{
             textToSpeechFlush("Timer tidak bisa diatur ke " + arrayText[index + 1] + "gunakan format angka setelah mengucapkan timer");
@@ -616,30 +634,179 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
         }
       }
     }else if(tempArrayText.contains("tutup") && tempArrayText.contains("aplikasi")){
-      finish();
-      System.exit(0);
+      if(isTutorial){
+          //
+      }else{
+          tts.shutdown();
+          timer.cancel();
+          finish();
+          System.exit(0);
+      }
     }else if(tempArrayText.contains("tampilkan") && tempArrayText.contains("penanda")){
-      isBoundingBoxes = true;
-      textToSpeechFlush("Menampilkan Penanda Objek");
+      if(isTutorial){
+          //
+      }else{
+          isBoundingBoxes = true;
+          textToSpeechFlush("Menampilkan Penanda Objek");
+      }
     }else if(tempArrayText.contains("hilangkan") && tempArrayText.contains("penanda")){
-      isBoundingBoxes = false;
-      textToSpeechFlush("Menghilangkan Penanda Objek");
+      if(isTutorial){
+          //
+      }else{
+          isBoundingBoxes = false;
+          textToSpeechFlush("Menghilangkan Penanda Objek");
+      }
     }else if(tempArrayText.contains("akurasi") && tempArrayText.contains("normal")){
-      minConfidence = MINIMUM_CONFIDENCE_TF_OD_API;
-      textToSpeechFlush("Mengembalikan Akurasi ke 60 persen");
+        if(isTutorial){
+            isReadyClickedTutorial4 = true;
+            minConfidence = MINIMUM_CONFIDENCE_TF_OD_API;
+            textToSpeechFlush("Mengembalikan Akurasi ke 60 persen");
+            if(isReadyClickedTutorial4){
+                timer.schedule(new TimerTask() {
+                    @Override
+                    public void run() {
+                        textToSpeechFlush("Selamat Anda telah bisa menggunakan perekam suara. Lakukan latihan perintah yang lain. Setelah ini tutorial akan diakhiri. Anda juga dapat membuka petunjuk suara ini lagi dengan menekan tombol pengaturan di sebelah pojok kanan atas sebanyak dua kali. Selamat mencoba!");
+                        timer.schedule(new TimerTask() {
+                            @Override
+                            public void run() {
+                                isTutorial = false;
+                                setSharedPreferencesBoolean("isTutorial", false);
+                                isReadyClickedTutorial1 = false;
+                                isReadyClickedTutorial2 = false;
+                                isReadyClickedTutorial3 = false;
+                                isReadyClickedTutorial4 = false;
+                                timer.cancel();
+                                timer = new Timer();
+                                tempMappedRecognitions.clear();
+                                timer.scheduleAtFixedRate(new TimerTask() {
+                                    @Override
+                                    public void run() {
+                                        runOnUiThread(new Runnable() {
+                                            @Override
+                                            public void run() {
+                                                if(tempMappedRecognitions.size() != 0 && !isReadySpeak){
+                                                    for(String tempMappedRecognition : tempMappedRecognitions){
+                                                        tts.speak(translate(tempMappedRecognition), TextToSpeech.QUEUE_ADD, null);
+                                                        Toast.makeText(getApplicationContext(), tempMappedRecognition, Toast.LENGTH_SHORT).show();
+                                                    }
+                                                    tempMappedRecognitions.clear();
+                                                }
+                                            }
+                                        });
+                                    }
+                                }, timerCounter*1000, timerCounter*1000);
+                            }
+                        }, 24*1000);
+                    }
+                }, 2*1000);
+            }
+        }else{
+            minConfidence = MINIMUM_CONFIDENCE_TF_OD_API;
+            textToSpeechFlush("Mengembalikan Akurasi ke 60 persen");
+        }
     }else if(tempArrayText.contains("akurasi")){
       int index = tempArrayText.indexOf("akurasi");
-      try{
-        if(Integer.parseInt(arrayText[index + 1]) >= 50 && Integer.parseInt(arrayText[index + 1]) <= 99){
-          minConfidence = Integer.parseInt(arrayText[index + 1]);
-          minConfidence = (Float) minConfidence/100;
-          textToSpeechFlush("Tingkat Akurasi diatur ke " + Integer.parseInt(arrayText[index + 1]));
-        }else{
-          textToSpeechFlush("Tingkat Akurasi tidak bisa diatur ke " + Integer.parseInt(arrayText[index + 1]));
-        }
-      }catch(Exception ex){
-        textToSpeechFlush("Perintah tidak lengkap");
+      if(isTutorial){
+          isReadyClickedTutorial3 = true;
+          try{
+              if(Integer.parseInt(arrayText[index + 1]) >= 50 && Integer.parseInt(arrayText[index + 1]) <= 99){
+                  minConfidence = Integer.parseInt(arrayText[index + 1]);
+                  minConfidence = (Float) minConfidence/100;
+                  textToSpeechFlush("Tingkat Akurasi diatur ke " + Integer.parseInt(arrayText[index + 1]));
+                  if(isReadyClickedTutorial3){
+                      timer.schedule(new TimerTask() {
+                          @Override
+                          public void run() {
+                              textToSpeechFlush("Selanjutnya katakan akurasi normal, maka aplikasi akan mengatur akurasi atau ketepatan perkiraan sebesar 60 persen");
+                              timer.schedule(new TimerTask() {
+                                  @Override
+                                  public void run() {
+                                      textToSpeechFlush("Sekarang, coba tekan dan katakan suatu perintah");
+                                      timer.schedule(new TimerTask() {
+                                          @Override
+                                          public void run() {
+                                         checkTutorialProgress(isReadyClickedTutorial4);
+                                          }
+                                      }, 10*1000);
+                                  }
+                              }, 12*1000);
+                          }
+                      }, 12*1000);
+                  }
+              }else{
+                  textToSpeechFlush("Tingkat Akurasi tidak bisa diatur ke " + Integer.parseInt(arrayText[index + 1]));
+              }
+          }catch(Exception ex){
+              textToSpeechFlush("Perintah tidak lengkap");
+          }
+      }else{
+          try{
+              if(Integer.parseInt(arrayText[index + 1]) >= 50 && Integer.parseInt(arrayText[index + 1]) <= 99){
+                  minConfidence = Integer.parseInt(arrayText[index + 1]);
+                  minConfidence = (Float) minConfidence/100;
+                  textToSpeechFlush("Tingkat Akurasi diatur ke " + Integer.parseInt(arrayText[index + 1]));
+              }else{
+                  textToSpeechFlush("Tingkat Akurasi tidak bisa diatur ke " + Integer.parseInt(arrayText[index + 1]));
+              }
+          }catch(Exception ex){
+              textToSpeechFlush("Perintah tidak lengkap");
+          }
       }
+    }else if(tempArrayText.contains("putar") && tempArrayText.contains("tutorial")){
+        if(isReadyClickedTutorial2 || isReadyClickedTutorial1 || isTutorial){
+            //
+        }else{
+            isTutorial = true;
+            setSharedPreferencesBoolean("isTutorial", true);
+            tts.shutdown();
+            timer.cancel();
+            recreate();
+        }
+    }else if(tempArrayText.contains("hentikan") && tempArrayText.contains("tutorial")){
+        if(isTutorial){
+            textToSpeechFlush("Tutorial akan diakhiri");
+            timer.schedule(new TimerTask() {
+                @Override
+                public void run() {
+                    textToSpeechFlush("Anda dapat membuka petunjuk suara ini lagi dengan menekan tombol pengaturan di sebelah pojok kanan atas sebanyak dua kali. Selamat mencoba!");
+                    timer.schedule(new TimerTask() {
+                        @Override
+                        public void run() {
+                            isTutorial = false;
+                            setSharedPreferencesBoolean("isTutorial", false);
+                            isReadyClickedTutorial1 = false;
+                            isReadyClickedTutorial2 = false;
+                            isReadyClickedTutorial3 = false;
+                            isReadyClickedTutorial4 = false;
+                            tts.shutdown();
+                            initializationTTS();
+                            timer.cancel();
+                            timer = new Timer();
+                            tempMappedRecognitions.clear();
+                            timer.scheduleAtFixedRate(new TimerTask() {
+                                @Override
+                                public void run() {
+                                    runOnUiThread(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            if(tempMappedRecognitions.size() != 0 && !isReadySpeak){
+                                                for(String tempMappedRecognition : tempMappedRecognitions){
+                                                    tts.speak(translate(tempMappedRecognition), TextToSpeech.QUEUE_ADD, null);
+                                                    Toast.makeText(getApplicationContext(), tempMappedRecognition, Toast.LENGTH_SHORT).show();
+                                                }
+                                                tempMappedRecognitions.clear();
+                                            }
+                                        }
+                                    });
+                                }
+                            }, timerCounter*1000, timerCounter*1000);
+                        }
+                    }, 24*1000);
+                }
+            }, 2*1000);
+        }else{
+            textToSpeechFlush("Tidak ada tutorial berlangsung");
+        }
     }else{
       textToSpeechFlush("Perintah tidak dikenali");
     }
@@ -657,6 +824,53 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
         }
       }
     });
+  }
+
+  private void checkTutorialProgress(boolean isReady){
+      if(isReady == false) {
+          textToSpeechFlush("Tombol belum ditekan atau perintah belum benar, coba sekali lagi");
+          timer.schedule(new TimerTask() {
+              @Override
+              public void run() {
+                  if (isReady == false) {
+                      textToSpeechFlush("Tutorial gagal, tutorial akan diakhiri, coba mengulangi tutorial dengan menekan pojok kanan atas dua kali. Terima kasih");
+                      timer.schedule(new TimerTask() {
+                          @Override
+                          public void run() {
+                              isTutorial = false;
+                              timer.cancel();
+                              timer = new Timer();
+                              tempMappedRecognitions.clear();
+                              timer.scheduleAtFixedRate(new TimerTask() {
+                                  @Override
+                                  public void run() {
+                                      runOnUiThread(new Runnable() {
+                                          @Override
+                                          public void run() {
+                                              if (tempMappedRecognitions.size() != 0 && !isReadySpeak) {
+                                                  for (String tempMappedRecognition : tempMappedRecognitions) {
+                                                      tts.speak(translate(tempMappedRecognition), TextToSpeech.QUEUE_ADD, null);
+                                                      Toast.makeText(getApplicationContext(), tempMappedRecognition, Toast.LENGTH_SHORT).show();
+                                                  }
+                                                  tempMappedRecognitions.clear();
+                                              }
+                                          }
+                                      });
+                                  }
+                              }, timerCounter * 1000, timerCounter * 1000);
+                          }
+                      }, 12 * 1000);
+                  }
+              }
+          }, 10*1000);
+      }
+  }
+
+  private void setSharedPreferencesBoolean(String name, boolean status){
+      SharedPreferences mSettings = getApplicationContext().getSharedPreferences("Settings", Context.MODE_PRIVATE);
+      SharedPreferences.Editor editor = mSettings.edit();
+      editor.putBoolean(name, status);
+      editor.apply();
   }
 
   @Override
@@ -732,11 +946,15 @@ public class DetectorActivity extends CameraActivity implements OnImageAvailable
               final RectF location = result.getLocation();
               if (location != null && result.getConfidence() >= minimumConfidence) {
 
-                if (!tempMappedRecognitions.contains(result.getTitle())) {
-                  if (!tempMappedRecognitionsHistory.contains(translate(result.getTitle()))) {
-                    tempMappedRecognitionsHistory.add(translate(result.getTitle()));
-                  }
-                  tempMappedRecognitions.add(result.getTitle());
+                if(!isTutorial){
+                    if (!tempMappedRecognitions.contains(result.getTitle())) {
+                        if (!tempMappedRecognitionsHistory.contains(translate(result.getTitle()))) {
+                            tempMappedRecognitionsHistory.add(translate(result.getTitle()));
+                        }
+                        tempMappedRecognitions.add(result.getTitle());
+                    }
+                }else{
+                    tempMappedRecognitions.clear();
                 }
 
                 if(isBoundingBoxes){

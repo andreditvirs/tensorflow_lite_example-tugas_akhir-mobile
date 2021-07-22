@@ -29,6 +29,7 @@ public class SettingsActivity extends AppCompatActivity {
     private ImageButton imgBtnOnOffSign;
     private ImageButton imgBtnRemoveHistory;
     private ImageButton imgBtnTutorial;
+    private ImageButton imgBtnAllObject;
     private Button btnSettings;
     private TextView txtVDelay;
     private TextView txtVIsBoundingBoxes;
@@ -63,6 +64,7 @@ public class SettingsActivity extends AppCompatActivity {
         imgBtnOnOffSign = findViewById(R.id.imgBtn_on_off_sign);
         imgBtnRemoveHistory = findViewById(R.id.imgBtn_remove_history);
         imgBtnTutorial = findViewById(R.id.imgBtn_tutorial);
+        imgBtnAllObject = findViewById(R.id.imgBtn_all_object);
         txtVHistory = findViewById(R.id.txtV_history);
 
         txtVDelay.setText(tempTimerCounter + "s");
@@ -87,11 +89,11 @@ public class SettingsActivity extends AppCompatActivity {
         imgBtnRemoveDelay.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if(tempTimerCounter > 6){
+                if(tempTimerCounter > 3){
                     tempTimerCounter--;
                     txtVDelay.setText(tempTimerCounter + "s");
                 }else{
-                    Toast.makeText(getApplicationContext(), "Waktu delay tidak boleh kurang dari 6", Toast.LENGTH_LONG).show();
+                    Toast.makeText(getApplicationContext(), "Waktu delay tidak boleh kurang dari 3", Toast.LENGTH_LONG).show();
                 }
             }
         });
@@ -109,7 +111,7 @@ public class SettingsActivity extends AppCompatActivity {
         imgBtnRemoveAccuracy.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if(tempMinConfidence > 0.49){
+                if(tempMinConfidence > 0.51){
                     tempMinConfidence-=0.01;
                     txtVAccuracy.setText(Math.round(tempMinConfidence*100) + "%");
                 }else{
@@ -145,6 +147,19 @@ public class SettingsActivity extends AppCompatActivity {
                 editor.apply();
                 Intent intent = new Intent(SettingsActivity.this, DetectorActivity.class);
                 startActivity(intent);
+                finish();
+            }
+        });
+        imgBtnAllObject.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent intent = new Intent(SettingsActivity.this, AllObjectListActivity.class);
+                intent.putExtra("timerCounter", timerCounter);
+                intent.putExtra("minConfidence", minConfidence);
+                intent.putExtra("isBoundingBoxes", isBoundingBoxes);
+                intent.putStringArrayListExtra("tempMappedRecognitionsHistory", tempMappedRecognitionsHistory);
+                startActivity(intent);
+                finish();
             }
         });
 
@@ -161,6 +176,7 @@ public class SettingsActivity extends AppCompatActivity {
                 editor.apply();
                 Intent intent = new Intent(SettingsActivity.this, DetectorActivity.class);
                 startActivity(intent);
+                finish();
             }
         });
     }

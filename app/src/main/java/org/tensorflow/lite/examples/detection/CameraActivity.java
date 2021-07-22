@@ -314,8 +314,8 @@ public abstract class CameraActivity extends AppCompatActivity
   public synchronized void onPause() {
     LOGGER.d("onPause " + this);
 
-    handlerThread.quitSafely();
     try {
+      handlerThread.quitSafely();
       handlerThread.join();
       handlerThread = null;
       handler = null;
